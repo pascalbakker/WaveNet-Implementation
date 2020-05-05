@@ -1,5 +1,5 @@
 from tensorflow.python.keras.callbacks import TensorBoard, EarlyStopping, ModelCheckpoint
-from AudioWaveGen import load_generic_audio, frame_generator, get_audio_from_model, load_train_valid_filenames, frame_generator2
+from audio import load_generic_audio, frame_generator, get_audio_from_model, load_train_valid_filenames, frame_generator2
 import time
 from scipy.io.wavfile import write
 import tqdm
@@ -52,7 +52,7 @@ def trainModel():
     print("Retrieving Audio")
     training_files, validation_files = load_train_valid_filenames(LJ_DIRECTORY, num_samples=1,
                                                                   percent_training=0.9)
-    validation_files = training_files
+    #validation_files = training_files
     print("Training files",len(training_files))
     print("Validation files",len(validation_files))
     print("Concatting Audio")
