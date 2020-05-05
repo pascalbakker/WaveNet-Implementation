@@ -50,7 +50,7 @@ def trainModel():
 
     # Get Audio
     print("Retrieving Audio")
-    training_files, validation_files = load_train_valid_filenames(LJ_DIRECTORY, num_samples=1,
+    training_files, validation_files = load_train_valid_filenames(LJ_DIRECTORY, num_samples=10,
                                                                   percent_training=0.9)
     #validation_files = training_files
     print("Training files",len(training_files))

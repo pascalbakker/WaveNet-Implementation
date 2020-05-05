@@ -40,14 +40,7 @@ def load_generic_audio(training_files, validation_files, sample_rate=16000):
     training_data = []
     for training_filename in training_files:
         audio, _ = librosa.load(training_filename, sr=sample_rate, mono=True)
-        """
-        audio = audio - audio.min()
-        audio = audio / (audio.max() - audio.min())
-        audio = (audio - 0.5) * 2
-        print(audio.shape)
-        """
         audio = audio.reshape(-1, 1)
-        print(audio.shape)
         training_data = training_data + audio.tolist()
 
     # Concat validation data
