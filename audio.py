@@ -40,12 +40,7 @@ def load_generic_audio(training_files, validation_files, sample_rate=16000):
     training_data = []
     for training_filename in training_files:
         audio, _ = librosa.load(training_filename, sr=sample_rate, mono=True)
-
-        audio = audio - audio.min()
-        audio = audio / (audio.max() - audio.min())
-        audio = (audio - 0.5) * 2
         print(audio.shape)
-
         audio = audio.reshape(-1, 1)
         training_data = training_data + audio.tolist()
 
@@ -81,7 +76,27 @@ def frame_generator(audio, frame_size, frame_shift, minibatch_size=20):
                     X = []
                     y = []
 
-def frame_generator2(audio, frame_size, frame_shift):
+# Generator
+# splits an audio sample up into pieces for the neural network.
+def dataset_generator(audio, frame_size, frame_shift, minibatch_size=20):
+    audio_len = len(audio)
+    X = []
+    y = []
+    while 1:
+        for i in range(0, audio_len - frame_size - 1, frame_shift):
+                frame = audio[i:i + frame_size]
+                if len(frame) < frame_size:
+                    break
+                if i + frame_size >= audio_len:
+                    break
+                temp = audio[i + frame_size]
+                target_val = int((np.sign(temp) * (np.log(1 + 256 * abs(temp)) / (
+                    np.log(1 + 256))) + 1) / 2.0 * 255)
+                X.append(frame.reshape(frame_size, 1))
+                y.append((np.eye(256)[target_val]))
+                yield np.array(X), np.array(y)
+
+def validation_generator(audio, frame_size, frame_shift):
     audio_len = len(audio)
     X = []
     y = []

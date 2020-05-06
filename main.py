@@ -1,5 +1,6 @@
 from tensorflow.python.keras.callbacks import TensorBoard, EarlyStopping, ModelCheckpoint
-from audio import load_generic_audio, frame_generator, get_audio_from_model, load_train_valid_filenames, frame_generator2
+from audio import load_generic_audio, frame_generator, get_audio_from_model, load_train_valid_filenames, validation_generator, dataset_generator
+
 import time
 from scipy.io.wavfile import write
 import tqdm
@@ -9,21 +10,51 @@ import pickle
 from pathlib import Path
 #from oldcode.old2.wavenet_model import WaveNet
 from wavenet_model import WaveNet
-# PATHS
-#LJ_DIRECTORY = "C:\\Users\\pasca\\Desktop\\audioProject\\data\\ljdata"  # Dataset Directory
-LJ_DIRECTORY = Path("./data/ljdata/wavs/")  # Dataset Directory
 import numpy as np
-#GENERATED_AUDIO_OUTPUT_DIRECTORY = 'C:\\Users\\pasca\Desktop\\audioProject\\output\\generated\\'
+import logging
+
+# PATHS
+LJ_DIRECTORY = Path('./data/ljdata/wavs/')  # Dataset Directory
 GENERATED_AUDIO_OUTPUT_DIRECTORY = Path('./output/generated/')
-
-# MODEL_OUTPUT_DIRECTORY = 'C:\\Users\\pasca\Desktop\\audioProject\\output\\model\\'
 MODEL_OUTPUT_DIRECTORY = Path('./output/model/')
-CHECKPOINTDIRECTORY = "C:\\Users\\pasca\\PycharmProjects\\WaveGen\\checkpoint\\"
-LOG_DIRECTORY = Path("./model_logs/")
+CHECKPOINTDIRECTORY = Path('./output/model/')
+LOG_DIRECTORY = Path('./model_logs/')
 
 
-def generateAudioFromModel(model, model_id, sr=16000, frame_size=256, num_files=1, generated_seconds=1,
-                           validation_audio=None):
+#CHECKPOINTDIRECTORY = "C:\\Users\\pasca\\PycharmProjects\\WaveGen\\checkpoint\\"
+
+def convertToFrames(audio, frame_size, frame_shift):
+  X = []
+  Y = []
+  audio_len = len(audio)
+  for i in range(0, audio_len - frame_size - 1, frame_shift):
+    frame = audio[i:i + frame_size]
+    if len(frame) < frame_size:
+      break
+    if i + frame_size >= audio_len:
+        break
+    temp = audio[i + frame_size]
+    target_val = int((np.sign(temp) * (np.log(1 + 256 * abs(temp)) / (np.log(1 + 256))) + 1) / 2.0 * 255)
+    X.append(frame.reshape(frame_size, 1))
+    Y.append((np.eye(256)[target_val]))
+  return np.array(X), np.array(Y)
+
+
+def createDataset(audio_data, batch_size, frame_size, frame_shift):
+  data_frames = convertToFrames(audio_data, frame_size, frame_shift)
+  print("data_frames: ", data_frames[0].shape)
+
+  ds = tf.data.Dataset.from_tensor_slices(data_frames)
+  
+  ds = ds.repeat()
+
+  ds = ds.batch(batch_size)
+  #ds = ds.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+  return ds
+
+
+
+def generateAudioFromModel(model, model_id, sr=16000, frame_size=256, num_files=1, generated_seconds=1, validation_audio=None):
     audio_context = validation_audio[:frame_size]
 
     for i in range(num_files):
@@ -50,7 +81,7 @@ def trainModel():
 
     # Get Audio
     print("Retrieving Audio")
-    training_files, validation_files = load_train_valid_filenames(LJ_DIRECTORY, num_samples=10,
+    training_files, validation_files = load_train_valid_filenames(LJ_DIRECTORY, num_samples=1,
                                                                   percent_training=0.9)
     #validation_files = training_files
     print("Training files",len(training_files))
@@ -64,16 +95,18 @@ def trainModel():
     print("Valdiation Audio Length:", validation_audio_length)
 
     # Create audio generators for model
-    validation_data_gen = frame_generator2(validation_audio,hyperparameters["frame_size"], hyperparameters["frame_shift"])
+    validation_data_gen = validation_generator(validation_audio,hyperparameters["frame_size"], hyperparameters["frame_shift"])
     training_data_gen = frame_generator(training_audio, hyperparameters["frame_size"], hyperparameters["frame_shift"], minibatch_size=hyperparameters["batch_size"])
-
+    #training_data = validation_generator(training_files, hyperparameters["frame_size"], hyperparameters["frame_shift"])
 
 
     # CALLBACKS
     model_id = str(int(time.time()))
     print("Model ID", model_id)
-    Path.mkdir(LOG_DIRECTORY / model_id)
-    log_dir = LOG_DIRECTORY / model_id
+    #p = Path.mkdir(LOG_DIRECTORY / model_id)
+    #p.mkdir(parents=True)
+    log_dir = Path(LOG_DIRECTORY / model_id)
+    log_dir.mkdir()
     checkpoint_filepath = MODEL_OUTPUT_DIRECTORY / model_id / "checkpoint.ckpt"
 
     tensorboard_callback = TensorBoard(log_dir=log_dir,
@@ -83,13 +116,11 @@ def trainModel():
                                            patience=10,
                                            verbose=0,
                                            restore_best_weights=True)
-    outputFolder = './output/model'
-    if not os.path.exists(outputFolder):
-        os.makedirs(outputFolder)
-    filepath = outputFolder + "/model"+model_id+"-{epoch:02d}-{val_accuracy:.2f}.hdf5"
+ 
+    checkpoint_path = CHECKPOINTDIRECTORY / model_id / 'checkpoint' / (model_id+"-{epoch:02d}-{val_accuracy:.2f}.hdf5")
 
     checkpoint_callback = ModelCheckpoint(
-        filepath, monitor='val_accuracy', verbose=1,
+        checkpoint_path, monitor='val_accuracy', verbose=1,
         save_best_only=False, save_weights_only=False,
         save_frequency=1)
 
@@ -114,6 +145,8 @@ def trainModel():
         pickle.dump(training_files, fp)
 
     print("Starting Model Training...\n")
+
+
     sub = WaveNet(num_filters=hyperparameters["num_filters"],
                   filter_size=hyperparameters["filter_size"],
                   dilation_rate=hyperparameters["dilation_rate"],
@@ -128,14 +161,21 @@ def trainModel():
     from tensorflow.python.client import device_lib
     print(device_lib.list_local_devices())
 
-    model.fit(training_data_gen,
+    training_dataset = createDataset(training_audio, hyperparameters["batch_size"], hyperparameters["frame_size"], hyperparameters["frame_shift"])
+    model.fit(training_dataset,
               epochs=hyperparameters["epochs"],
-              steps_per_epoch=training_audio_length // hyperparameters["batch_size"],
-              validation_data=validation_data_gen,
-              verbose=1,
-              callbacks=[tensorboard_callback, earlystopping_callback, checkpoint_callback])
+              steps_per_epoch=training_audio_length // hyperparameters["batch_size"])
+    """
+        model.fit(training_data_gen,
+                  epochs=hyperparameters["epochs"],
+                  steps_per_epoch=training_audio_length // hyperparameters["batch_size"],
+                  validation_data=validation_data_gen,
+                  verbose=1,
+                  callbacks=[tensorboard_callback, earlystopping_callback, checkpoint_callback])
+    """
+
     print('Saving model...')
-    model.save(MODEL_OUTPUT_DIRECTORY / ('model_' + model_id + '_' + '.h5'))
+    model.save(MODEL_OUTPUT_DIRECTORY / model_id / ('final_model_' + model_id + '_' + '.h5'))
     print("Model saved.")
 
     print("Generating Audio.")
@@ -220,7 +260,7 @@ def generateData(model_id):
                   dilation_rate=hyperparameters["dilation_rate"], num_layers=hyperparameters["num_layers"],
                   input_size=hyperparameters["frame_size"])
     model = sub.model()
-    model.load_weights('C:\\Users\\pasca\\PycharmProjects\\WaveGen\\output\model\\model1588632404-26-1.00.hdf5')
+    model.load_weights()
     generateAudioFromModel(model, model_id, sr=hyperparameters["sample_rate"], frame_size=hyperparameters["frame_size"],
                            num_files=1, generated_seconds=3, validation_audio=validation_audio)
 
