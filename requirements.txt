@@ -1,0 +1,6 @@
+librosa
+pandas
+numpy
+scipy
+tqdm
+pypi
