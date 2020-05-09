@@ -9,8 +9,9 @@ https://deepmind.com/blog/article/wavenet-generative-model-raw-audio
 https://arxiv.org/pdf/1609.03499.pdf
 
 ## Necessary Tools:
-Python 3
-Docker (Docker Engine API v1.40 for gpu)
+1. Python 3
+2. Docker (Docker Engine API v1.40 for gpu)
+
 Works on all platforms but tested on Ubuntu 18
 
 ## Building and Running
